@@ -27,7 +27,7 @@ from tensorflow.python.keras.layers import Embedding, Input, Lambda
 from tensorflow.python.keras.models import Model
 
 from ..alias import create_alias_table, alias_sample
-from ..utils import preprocess_nxgraph
+# from ..utils import preprocess_nxgraph
 
 
 def line_loss(y_true, y_pred):
@@ -67,7 +67,7 @@ def create_model(numNodes, embedding_size, order='second'):
 
 
 class LINE:
-    def __init__(self, graph, embedding_size=8, negative_ratio=5, order='second',):
+    def __init__(self, graphfile, embedding_size=8, negative_ratio=5, order='second',):
         """
 
         :param graph:
@@ -78,8 +78,8 @@ class LINE:
         if order not in ['first', 'second', 'all']:
             raise ValueError('mode must be fisrt,second,or all')
 
-        self.graph = graph
-        self.idx2node, self.node2idx = preprocess_nxgraph(graph)
+        self.graphfile = graphfile
+        # self.idx2node, self.node2idx = preprocess_nxgraph(graph)
         self.use_alias = True
 
         self.rep_size = embedding_size
@@ -89,8 +89,8 @@ class LINE:
         self.negative_ratio = negative_ratio
         self.order = order
 
-        self.node_size = graph.number_of_nodes()
-        self.edge_size = graph.number_of_edges()
+        self.node_size = 406916
+        self.edge_size = 176998470
         self.samples_per_epoch = self.edge_size*(1+negative_ratio)
 
         self._gen_sampling_table()
@@ -106,7 +106,7 @@ class LINE:
         self.model, self.embedding_dict = create_model(
             self.node_size, self.rep_size, self.order)
         self.model.compile(opt, line_loss)
-        self.batch_it = self.batch_iter(self.node2idx)
+        self.batch_it = self.batch_iter()
 
     def _gen_sampling_table(self):
 
@@ -114,11 +114,22 @@ class LINE:
         power = 0.75
         numNodes = self.node_size
         node_degree = np.zeros(numNodes)  # out degree
-        node2idx = self.node2idx
+        # node2idx = self.node2idx
 
-        for edge in self.graph.edges():
-            node_degree[node2idx[edge[0]]
-                        ] += self.graph[edge[0]][edge[1]].get('weight', 1.0)
+        # for edge in self.graph.edges():
+        #     node_degree[node2idx[edge[0]]
+        #                 ] += self.graph[edge[0]][edge[1]].get('weight', 1.0)
+        total_sum_edges = 0
+        with open("%s"%(self.graphfile), 'r') as f:
+            line = f.readline.strip()
+            while(line):
+                line_parts = line.split(' ')
+                n1 = int(line_parts[0])    
+                n2 = int(line_parts[1])    
+                w = int(line_parts[2])
+                node_degree[n1] += w
+                total_sum_edges += w    
+                line = f.readline.strip()
 
         total_sum = sum([math.pow(node_degree[i], power)
                          for i in range(numNodes)])
@@ -128,19 +139,40 @@ class LINE:
         self.node_accept, self.node_alias = create_alias_table(norm_prob)
 
         # create sampling table for edge
-        numEdges = self.graph.number_of_edges()
-        total_sum = sum([self.graph[edge[0]][edge[1]].get('weight', 1.0)
-                         for edge in self.graph.edges()])
-        norm_prob = [self.graph[edge[0]][edge[1]].get('weight', 1.0) *
-                     numEdges / total_sum for edge in self.graph.edges()]
+        numEdges = self.edge_size
+        norm_prob = []
+        with open("%s"%(self.graphfile), 'r') as f:
+            line = f.readline.strip()
+            while(line):
+                line_parts = line.split(' ')
+                n1 = int(line_parts[0])    
+                n2 = int(line_parts[1])    
+                w = int(line_parts[2])
+                norm_prob.append(w*numEdges/total_sum_edges)
+                line = f.readline.strip()
+
+        # total_sum = sum([self.graph[edge[0]][edge[1]].get('weight', 1.0)
+        #                  for edge in self.graph.edges()])
+        # norm_prob = [self.graph[edge[0]][edge[1]].get('weight', 1.0) *
+        #              numEdges / total_sum for edge in self.graph.edges()]
 
         self.edge_accept, self.edge_alias = create_alias_table(norm_prob)
 
-    def batch_iter(self, node2idx):
+    def batch_iter(self):
 
-        edges = [(node2idx[x[0]], node2idx[x[1]]) for x in self.graph.edges()]
+        # edges = [(node2idx[x[0]], node2idx[x[1]]) for x in self.graph.edges()]
+        edges = []
+        with open("%s"%(self.graphfile), 'r') as f:
+            line = f.readline.strip()
+            while(line):
+                line_parts = line.split(' ')
+                n1 = int(line_parts[0])    
+                n2 = int(line_parts[1])    
+                w = int(line_parts[2])
+                edges.append((n1, n2))
+                line = f.readline.strip()
 
-        data_size = self.graph.number_of_edges()
+        data_size = self.edge_size
         shuffle_indices = np.random.permutation(np.arange(data_size))
         # positive or negative mod
         mod = 0
@@ -199,9 +231,9 @@ class LINE:
         else:
             embeddings = np.hstack((self.embedding_dict['first'].get_weights()[
                                    0], self.embedding_dict['second'].get_weights()[0]))
-        idx2node = self.idx2node
+        # idx2node = self.idx2node
         for i, embedding in enumerate(embeddings):
-            self._embeddings[idx2node[i]] = embedding
+            self._embeddings[i] = embedding
 
         return self._embeddings
 
